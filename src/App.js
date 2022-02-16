@@ -20,6 +20,8 @@ function App() {
   const [mintingWalletSecretKey, setMintingWalletSecretKey] = useState(null);
   const [supplyCapped, setSupplyCapped] = useState(false);
   const [tokenObject, setTokenObject] = useState();
+  const [mintAmount, setMintAmount] = useState();
+  const [addAmount, setAddAmount] = useState();
 
   const [tokenATA, setTokenATA] = useState();
 
@@ -32,6 +34,10 @@ function App() {
     [balance]
   );
 
+  useEffect(() => {
+    getTokenBalanceHelper();
+  }, [tokenATA]);
+
   // simple getBalance function
   const getBalanceHelper = async () => {
     if (walletConnected === true) {
@@ -39,6 +45,15 @@ function App() {
       const walletBalance = await connection.getBalance(new PublicKey(provider.publicKey));
 
       setBalance(walletBalance);
+    }
+  };
+
+  const getTokenBalanceHelper = async () => {
+    if (isTokenCreated === true) {
+      const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
+      const tknBalance = await connection.getTokenAccountBalance(tokenATA);
+
+      setTokenBalance(tknBalance);
     }
   };
 
@@ -89,7 +104,7 @@ function App() {
   };
 
   // Initial mint function
-  const initialMintHelper = async () => {
+  const initialMintHelper = async (amount) => {
     try {
       setLoading(true);
       // Setup new connection
@@ -121,7 +136,7 @@ function App() {
       const fromTokenAccount = await creatorToken.getOrCreateAssociatedAccountInfo(mintingFromWallet.publicKey);
 
       // mint token to ATA
-      await creatorToken.mintTo(fromTokenAccount.address, mintingFromWallet.publicKey, [], 1000000);
+      await creatorToken.mintTo(fromTokenAccount.address, mintingFromWallet.publicKey, [], mintAmount);
 
       console.log("token created");
 
@@ -130,7 +145,7 @@ function App() {
 
       // transfer token from mint ATA to user ATA
       const transaction = new Transaction().add(
-        Token.createTransferInstruction(TOKEN_PROGRAM_ID, fromTokenAccount.address, toTokenAccount.address, mintingFromWallet.publicKey, [], 1000000)
+        Token.createTransferInstruction(TOKEN_PROGRAM_ID, fromTokenAccount.address, toTokenAccount.address, mintingFromWallet.publicKey, [], mintAmount)
       );
 
       // send & confirm txn
@@ -160,15 +175,16 @@ function App() {
 
       const fromTokenAccount = await tokenObject.getOrCreateAssociatedAccountInfo(createMintingWallet.publicKey);
       const toTokenAccount = await tokenObject.getOrCreateAssociatedAccountInfo(mintRequester);
-      await tokenObject.mintTo(fromTokenAccount.address, createMintingWallet.publicKey, [], 100000000);
+      await tokenObject.mintTo(fromTokenAccount.address, createMintingWallet.publicKey, [], addAmount);
 
       console.log(tokenObject.publicKey.toString());
 
       const transaction = new Transaction().add(
-        Token.createTransferInstruction(TOKEN_PROGRAM_ID, fromTokenAccount.address, toTokenAccount.address, createMintingWallet.publicKey, [], 100000000)
+        Token.createTransferInstruction(TOKEN_PROGRAM_ID, fromTokenAccount.address, toTokenAccount.address, createMintingWallet.publicKey, [], addAmount)
       );
       await sendAndConfirmTransaction(connection, transaction, [createMintingWallet], { commitment: "confirmed" });
 
+      getTokenBalanceHelper();
       setLoading(false);
     } catch (err) {
       console.log(err);
@@ -198,6 +214,14 @@ function App() {
     }
   };
 
+  const handleMintChange = (e) => {
+    setMintAmount(e.target.value);
+  };
+
+  const handleAddChange = (e) => {
+    setAddAmount(e.target.value);
+  };
+
   return (
     <div className='App'>
       <h1>Token Deployment</h1>
@@ -214,33 +238,55 @@ function App() {
       )}
 
       {walletConnected ? (
-        <p>
-          <li>
-            Create your own token:{" "}
-            <button disabled={loading} onClick={initialMintHelper}>
-              Initial Mint{" "}
-            </button>
-          </li>
-          <li>
-            Mint more tokens:{" "}
-            <button disabled={loading || supplyCapped} onClick={mintMoreHelper}>
-              Mint Again
-            </button>
-          </li>
-          <li>
-            Remove mint authority:{" "}
-            <button disabled={loading} onClick={removeAuthorityHelper}>
-              Remove mint authority
-            </button>
-          </li>
-        </p>
+        <div>
+          <form>
+            <input type='number' placeholder='Mint Amount' onChange={handleMintChange}></input>
+            <br></br>
+            <input type='number' placeholder='Mint More Amount' onChange={handleAddChange}></input>
+          </form>
+
+          <p>
+            <li>
+              Create your own token:{" "}
+              <button disabled={loading} onClick={initialMintHelper}>
+                Initial Mint{" "}
+              </button>
+            </li>
+            <li>
+              Mint more tokens:{" "}
+              <button disabled={loading || supplyCapped} onClick={mintMoreHelper}>
+                Mint Again
+              </button>
+            </li>
+            <li>
+              Remove mint authority:{" "}
+              <button disabled={loading} onClick={removeAuthorityHelper}>
+                Remove mint authority
+              </button>
+            </li>
+            <li>
+              Fetch balance:{" "}
+              <button disabled={loading} onClick={getTokenBalanceHelper}>
+                Fetch{" "}
+              </button>
+            </li>
+          </p>
+        </div>
       ) : (
         <p></p>
       )}
 
       {walletConnected && balance ? (
         <p>
-          <strong>Balance: {balance / LAMPORTS_PER_SOL}</strong>
+          <strong>SOL Balance: {balance / LAMPORTS_PER_SOL}</strong>
+        </p>
+      ) : (
+        <p></p>
+      )}
+
+      {walletConnected && tokenBalance ? (
+        <p>
+          <strong>Token Balance: {tokenBalance.value.amount}</strong>
         </p>
       ) : (
         <p></p>
