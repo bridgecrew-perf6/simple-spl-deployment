@@ -78,16 +78,20 @@ function App() {
     }
   };
 
+  // Initial mint function
   const initialMintHelper = async () => {
     try {
+      // Setup new connection
       const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
 
+      // Generate new keypair for initializing and minting of token.
       const mintRequester = await provider.publicKey;
       const mintingFromWallet = await Keypair.generate();
       setMintingWalletSecretKey(JSON.stringify(mintingFromWallet.secretKey));
 
       console.log("airdropping SOL to minter wallet");
 
+      // airdrop SOL
       const fromAirdropSignature = await connection.requestAirdrop(mintingFromWallet.publicKey, 2 * LAMPORTS_PER_SOL);
       const confirmation = await connection.confirmTransaction(fromAirdropSignature, "confirmed");
 
@@ -99,17 +103,26 @@ function App() {
 
       console.log("creating token");
 
+      // create the actual token itself
       const creatorToken = await Token.createMint(connection, mintingFromWallet, mintingFromWallet.publicKey, mintingFromWallet.publicKey, 9, TOKEN_PROGRAM_ID);
+
+      // create an associated token account if does not exist
       const fromTokenAccount = await creatorToken.getOrCreateAssociatedAccountInfo(mintingFromWallet.publicKey);
+
+      // mint token to ATA
       await creatorToken.mintTo(fromTokenAccount.address, mintingFromWallet.publicKey, [], 1000000);
 
       console.log("token created");
 
+      // create new ATA for end user
       const toTokenAccount = await creatorToken.getOrCreateAssociatedAccountInfo(mintRequester);
+
+      // transfer token from mint ATA to user ATA
       const transaction = new Transaction().add(
         Token.createTransferInstruction(TOKEN_PROGRAM_ID, fromTokenAccount.address, toTokenAccount.address, mintingFromWallet.publicKey, [], 1000000)
       );
 
+      // send & confirm txn
       const signature = await sendAndConfirmTransaction(connection, transaction, [mintingFromWallet], "confirmed");
 
       console.log("SIGNATURE: ", signature);
