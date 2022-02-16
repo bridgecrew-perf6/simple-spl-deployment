@@ -7,21 +7,30 @@ import { TOKEN_PROGRAM_ID, Token } from "@solana/spl-token";
 function App() {
   // Create states for wallet connectivity.
 
-  const [walletConnected, setWalletConnected] = useState(false);
+  const [walletConnected, setWalletConnected] = useState();
   const [provider, setProvider] = useState();
   const [loading, setLoading] = useState();
   const [balance, setBalance] = useState();
+  const [tokenBalance, setTokenBalance] = useState();
 
   // States for mint creation
 
   const [isTokenCreated, setIsTokenCreated] = useState(false);
   const [createdTokenPublicKey, setCreatedTokenPublicKey] = useState(null);
   const [mintingWalletSecretKey, setMintingWalletSecretKey] = useState(null);
+  const [supplyCapped, setSupplyCapped] = useState(false);
+  const [tokenObject, setTokenObject] = useState();
+
+  const [tokenATA, setTokenATA] = useState();
 
   // Quick useEffect to grab SOL balance on connect.
-  useEffect(() => {
-    getBalanceHelper();
-  }, [walletConnected]);
+  useEffect(
+    () => {
+      getBalanceHelper();
+    },
+    [walletConnected],
+    [balance]
+  );
 
   // simple getBalance function
   const getBalanceHelper = async () => {
@@ -71,6 +80,7 @@ function App() {
       await connection.confirmTransaction(airdropSignature, "confirmed");
 
       console.log(`2 SOL airdropped to your wallet ${provider.publicKey.toString()} successfully`);
+      getBalanceHelper();
       setLoading(false);
     } catch (error) {
       console.log(error);
@@ -81,6 +91,7 @@ function App() {
   // Initial mint function
   const initialMintHelper = async () => {
     try {
+      setLoading(true);
       // Setup new connection
       const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
 
@@ -103,8 +114,8 @@ function App() {
 
       console.log("creating token");
 
-      // create the actual token itself
-      const creatorToken = await Token.createMint(connection, mintingFromWallet, mintingFromWallet.publicKey, mintingFromWallet.publicKey, 9, TOKEN_PROGRAM_ID);
+      // create the actual token itself by initializing a Token class object
+      const creatorToken = await Token.createMint(connection, mintingFromWallet, mintingFromWallet.publicKey, mintingFromWallet.publicKey, 0, TOKEN_PROGRAM_ID);
 
       // create an associated token account if does not exist
       const fromTokenAccount = await creatorToken.getOrCreateAssociatedAccountInfo(mintingFromWallet.publicKey);
@@ -130,6 +141,57 @@ function App() {
       setCreatedTokenPublicKey(creatorToken.publicKey.toString());
       setIsTokenCreated(true);
       setLoading(false);
+      setTokenObject(creatorToken);
+      setTokenATA(toTokenAccount.address);
+    } catch (error) {
+      console.log(error);
+      setLoading(false);
+    }
+  };
+
+  // create additional mint button
+
+  const mintMoreHelper = async () => {
+    try {
+      setLoading(true);
+      const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
+      const createMintingWallet = await Keypair.fromSecretKey(Uint8Array.from(Object.values(JSON.parse(mintingWalletSecretKey))));
+      const mintRequester = await provider.publicKey;
+
+      const fromTokenAccount = await tokenObject.getOrCreateAssociatedAccountInfo(createMintingWallet.publicKey);
+      const toTokenAccount = await tokenObject.getOrCreateAssociatedAccountInfo(mintRequester);
+      await tokenObject.mintTo(fromTokenAccount.address, createMintingWallet.publicKey, [], 100000000);
+
+      console.log(tokenObject.publicKey.toString());
+
+      const transaction = new Transaction().add(
+        Token.createTransferInstruction(TOKEN_PROGRAM_ID, fromTokenAccount.address, toTokenAccount.address, createMintingWallet.publicKey, [], 100000000)
+      );
+      await sendAndConfirmTransaction(connection, transaction, [createMintingWallet], { commitment: "confirmed" });
+
+      setLoading(false);
+    } catch (err) {
+      console.log(err);
+      setLoading(false);
+    }
+  };
+
+  // remove authority function
+
+  const removeAuthorityHelper = async () => {
+    try {
+      setLoading(true);
+      const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
+
+      // convert secret key to uint8array and create new keypair object
+      const createMintingWallet = await Keypair.fromSecretKey(Uint8Array.from(Object.values(JSON.parse(mintingWalletSecretKey))));
+
+      // set mint authority to null
+      const signature = await tokenObject.setAuthority(new PublicKey(createdTokenPublicKey), null, "MintTokens", createMintingWallet.publicKey, [
+        createMintingWallet,
+      ]);
+      setSupplyCapped(true);
+      setLoading(false);
     } catch (error) {
       console.log(error);
       setLoading(false);
@@ -142,6 +204,10 @@ function App() {
       {walletConnected ? (
         <p>
           <strong>Public Key:</strong> {provider.publicKey.toString()}
+          <br></br>
+          <strong>Token ATA:</strong> {tokenATA ? tokenATA.toString() : "Not Created"}
+          <br></br>
+          <strong>Token Public Key:</strong> {tokenObject ? tokenObject.publicKey.toString() : "Not Created"}
         </p>
       ) : (
         <p></p>
@@ -149,16 +215,30 @@ function App() {
 
       {walletConnected ? (
         <p>
-          Create your own token
-          <button disabled={loading} onClick={initialMintHelper}>
-            Initial Mint{" "}
-          </button>
+          <li>
+            Create your own token:{" "}
+            <button disabled={loading} onClick={initialMintHelper}>
+              Initial Mint{" "}
+            </button>
+          </li>
+          <li>
+            Mint more tokens:{" "}
+            <button disabled={loading || supplyCapped} onClick={mintMoreHelper}>
+              Mint Again
+            </button>
+          </li>
+          <li>
+            Remove mint authority:{" "}
+            <button disabled={loading} onClick={removeAuthorityHelper}>
+              Remove mint authority
+            </button>
+          </li>
         </p>
       ) : (
         <p></p>
       )}
 
-      {walletConnected ? (
+      {walletConnected && balance ? (
         <p>
           <strong>Balance: {balance / LAMPORTS_PER_SOL}</strong>
         </p>
